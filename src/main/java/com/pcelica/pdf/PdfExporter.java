@@ -1,44 +1,27 @@
 package com.pcelica.pdf;
 
 import com.pcelica.model.BeeUser;
-import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
-import org.apache.pdfbox.pdmodel.PDPageContentStream.AppendMode;
-import org.apache.pdfbox.pdmodel.graphics.state.RenderingMode;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PdfExporter {
     private static final DateTimeFormatter OUT_DF = DateTimeFormatter.ofPattern("dd.MM.yyyy.");
 
-    /**
-     * Backwards-compatible entry used by MainFrame: export to Desktop folder.
-     * It will try to use the template (pravi_primjer.pdf) if present; otherwise falls back to generated layout.
-     */
     public static File exportToDesktopFolder(BeeUser u) throws IOException {
-        Path[] candidates = new Path[]{
-                Paths.get("src/main/resources/templates/pravi_primjer.pdf"),
-                Paths.get("templates/pravi_primjer.pdf"),
-                Paths.get("pravi_primjer.pdf"),
-                Paths.get("/mnt/data/pravi_primjer.pdf")
-        };
-        for (Path p : candidates) {
-            if (Files.exists(p)) {
-                return exportToDesktopUsingTemplate(u, p);
-            }
-        }
-        return exportToDesktopSimple(u);
-    }
-
-    private static File exportToDesktopUsingTemplate(BeeUser u, Path template) throws IOException {
         String userHome = System.getProperty("user.home");
         Path desktop = Paths.get(userHome, "Desktop");
         String folder = "Pčelica-Podsticaji-" + u.getYear();
@@ -50,115 +33,133 @@ public class PdfExporter {
                 u.getFirstName().replaceAll("\\s+", "_"));
         Path outPath = targetDir.resolve(fileName);
 
-        try (PDDocument templateDoc = Loader.loadPDF(template.toFile())) {
-            if (templateDoc.getNumberOfPages() == 0) {
-                throw new IOException("Template PDF nema stranica.");
-            }
-            PDPage page = templateDoc.getPage(0);
-            PDType0Font font = loadEmbeddedFont(templateDoc);
-            Map<String, float[]> coords = getDefaultCoordinates();
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
 
-            try (PDPageContentStream cs = new PDPageContentStream(templateDoc, page, AppendMode.APPEND, true, true)) {
-                cs.setFont(font, 11);
-                cs.setRenderingMode(RenderingMode.FILL);
-                drawText(cs, font, 12, coords.get("org_name"), "UDRUŽENJE ZA RAZVOJ I PODRŠKU POLJOPRIVREDE \"PČELICA\"");
-                drawText(cs, font, 11, coords.get("date"), "Datum: " + java.time.LocalDate.now().format(OUT_DF));
-                drawText(cs, font, 11, coords.get("doc_number"), "Broj: " + safe(u.getDocNumber()));
-                drawText(cs, font, 18, coords.get("title"), "POTVRDA");
+            PDType0Font regularFont = loadEmbeddedFont(document, "/fonts/DejaVuSans.ttf");
+            PDType0Font boldFont = loadEmbeddedFont(document, "/fonts/DejaVuSans-Bold.ttf");
 
-                String body = String.format("Ovom potvrđujemo da se %s %s, rođen(a) %s u %s, sa prebivalištem u %s, nalazi u evidenciji aktivnih pčelara udruženja.",
-                        safe(u.getFirstName()),
-                        safe(u.getLastName()),
-                        u.getBirthDate() == null ? "" : u.getBirthDate().format(OUT_DF),
-                        safe(u.getBirthPlace()),
-                        safe(u.getResidenceCity()));
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                // Margine i razmaci
+                float marginLeft = 50;
+                float marginTop = 750;
+                float lineHeight = 14;
 
-                List<String> lines = wrap(body, 80);
-                float[] bodyBase = coords.get("body");
-                float y = bodyBase[1];
-                for (String ln : lines) {
-                    drawText(cs, font, 12, new float[]{bodyBase[0], y}, ln);
-                    y -= 16;
+                // Naziv udruženja
+                String orgName = "UDRUŽENJE ZA RAZVOJ I PODRŠKU POLJOPRIVREDE \"PČELICA\"";
+                float orgNameWidth = boldFont.getStringWidth(orgName) / 1000 * 12;
+                float orgNameX = (PDRectangle.A4.getWidth() - orgNameWidth) / 2;
+                drawText(contentStream, boldFont, 12, orgNameX, marginTop, orgName);
+
+                // Adresa
+                String address = "75 270 Živinice Gornje, Glavni put bb, naseljeno mjesto Kopjevići";
+                float addressWidth = regularFont.getStringWidth(address) / 1000 * 10;
+                float addressX = (PDRectangle.A4.getWidth() - addressWidth) / 2;
+                drawText(contentStream, regularFont, 10, addressX, marginTop - lineHeight, address);
+
+                // Web i e-mail
+                String contact = "www.pcelica-gzivinice.weebly.com   e-mail: pcelicagzivinice@gmail.com";
+                float contactWidth = regularFont.getStringWidth(contact) / 1000 * 10;
+                float contactX = (PDRectangle.A4.getWidth() - contactWidth) / 2;
+                drawText(contentStream, regularFont, 10, contactX, marginTop - 2 * lineHeight, contact);
+
+                // Datum
+                String dateStr = "Datum: " + LocalDate.now().format(OUT_DF) + " godine";
+                drawText(contentStream, regularFont, 11, marginLeft, marginTop - 4 * lineHeight, dateStr);
+
+                // Broj dokumenta
+                String docNumber = "Broj: " + (u.getDocNumber() != null ? u.getDocNumber() : "");
+                drawText(contentStream, regularFont, 11, marginLeft, marginTop - 5 * lineHeight, docNumber);
+
+                // Kontakt
+                String contactInfo = "Kontakt: 061 / 96 02 41";
+                drawText(contentStream, regularFont, 11, marginLeft, marginTop - 6 * lineHeight, contactInfo);
+
+                // Naslov POTVRDA
+                String title = "P o t v r d u";
+                float titleWidth = boldFont.getStringWidth(title) / 1000 * 18;
+                float titleX = (PDRectangle.A4.getWidth() - titleWidth) / 2;
+                drawText(contentStream, boldFont, 18, titleX, marginTop - 9 * lineHeight, title);
+
+                // Tekst potvrde
+                float bodyY = marginTop - 13 * lineHeight;
+                String genderSuffix = "Žensko".equals(u.getGender()) ? "a" : "";
+
+                StringBuilder bodyBuilder = new StringBuilder("Da se, ");
+                bodyBuilder.append(safe(u.getLastName())).append(" ").append(safe(u.getFirstName()))
+                        .append(", rođen").append(genderSuffix).append(" ");
+
+                if (u.getBirthDate() != null) {
+                    bodyBuilder.append(u.getBirthDate().format(OUT_DF)).append(" godine");
                 }
 
-                drawText(cs, font, 12, coords.get("colonies"), "Broj pčelinjih zajednica: " + u.getColonies());
-                drawText(cs, font, 12, coords.get("sig_title"), "Predsjednik Udruženja");
-                drawText(cs, font, 12, coords.get("sig_line"), "________________________");
-                drawText(cs, font, 12, coords.get("sig_name"), "Šahim Halilbašić");
+                if (u.getBirthPlace() != null && !u.getBirthPlace().trim().isEmpty()) {
+                    bodyBuilder.append(" u ").append(safe(u.getBirthPlace()));
+                }
+
+                if (u.getResidenceCity() != null && !u.getResidenceCity().trim().isEmpty()) {
+                    bodyBuilder.append(", sa prebivalištem u ").append(safe(u.getResidenceCity()));
+                }
+
+                bodyBuilder.append(", nalazi u evidenciji aktivnog članstva");
+
+                String line1 = bodyBuilder.toString();
+                String line2 = "Udruženja za razvoj i podršku poljoprivrede \"PČELICA\" i broji (" +
+                        u.getColonies() + ") pčelinjih zajednica / kolonija.";
+
+                List<String> wrappedLine1 = wrapText(line1, regularFont, 11,
+                        PDRectangle.A4.getWidth() - 2 * marginLeft);
+                for (int i = 0; i < wrappedLine1.size(); i++) {
+                    drawText(contentStream, regularFont, 11, marginLeft,
+                            bodyY - i * lineHeight, wrappedLine1.get(i));
+                }
+
+                int line1Height = wrappedLine1.size();
+                drawText(contentStream, regularFont, 11, marginLeft,
+                        bodyY - line1Height * lineHeight, line2);
+
+                // Redni brojevi
+                String coloniesLine = "Redni broj od 1 do " + u.getColonies() + " pčelinjih zajednica / kolonija.";
+                drawText(contentStream, regularFont, 11, marginLeft,
+                        bodyY - (line1Height + 2) * lineHeight, coloniesLine);
+
+                // Svrha
+                float purposeY = bodyY - (line1Height + 4) * lineHeight;
+                String purpose1 = "Potvrda se izdaje podnosiocu zahtjeva u svrhu ostvarivanja novčane podrške u";
+                String purpose2 = "primarnoj poljoprivrednoj proizvodnji, te zdravstvenoj zaštiti pčela i unapređenje pčelinjeg";
+                String purpose3 = "fonda, za " + u.getYear() + ". godinu.";
+
+                drawText(contentStream, regularFont, 11, marginLeft, purposeY, purpose1);
+                drawText(contentStream, regularFont, 11, marginLeft, purposeY - lineHeight, purpose2);
+                drawText(contentStream, regularFont, 11, marginLeft, purposeY - 2 * lineHeight, purpose3);
+
+                // Potpis
+                float signatureY = purposeY - 6 * lineHeight;
+                float signatureX = PDRectangle.A4.getWidth() - marginLeft - 150;
+
+                String signatureTitle = "Predsjednik Udruženja";
+                drawText(contentStream, regularFont, 11, signatureX, signatureY, signatureTitle);
+
+                String signatureLine = "________________________";
+                drawText(contentStream, regularFont, 11, signatureX, signatureY - lineHeight, signatureLine);
+
+                // Pomaknuto malo ulijevo (-5 px)
+                String signatureName = "Šahim Halilbašić";
+                float nameWidth = regularFont.getStringWidth(signatureName) / 1000 * 11;
+                float nameX = signatureX + (150 - nameWidth) / 2 - 8;
+                drawText(contentStream, regularFont, 11, nameX, signatureY - 2 * lineHeight, signatureName);
             }
 
-            templateDoc.save(outPath.toFile());
+            document.save(outPath.toFile());
             return outPath.toFile();
         }
     }
 
-    private static File exportToDesktopSimple(BeeUser u) throws IOException {
-        Path exports = Paths.get("exports");
-        if (!Files.exists(exports)) Files.createDirectories(exports);
-
-        String fileName = String.format("Potvrda_%s_%s_%d.pdf",
-                u.getLastName().replaceAll("\\s+", "_"),
-                u.getFirstName().replaceAll("\\s+", "_"),
-                u.getYear());
-        Path outExports = exports.resolve(fileName);
-
-        String userHome = System.getProperty("user.home");
-        Path desktop = Paths.get(userHome, "Desktop");
-        Path targetDir = desktop.resolve("Pčelica-Podsticaji-" + u.getYear());
-        Files.createDirectories(targetDir);
-        Path outDesktop = targetDir.resolve(fileName);
-
-        try (PDDocument doc = new PDDocument()) {
-            PDPage page = new PDPage();
-            doc.addPage(page);
-            PDType0Font font = loadEmbeddedFont(doc);
-
-            try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
-                float marginLeft = 50;
-                float y = 750;
-
-                drawText(cs, font, 12, new float[]{marginLeft, y}, "UDRUŽENJE ZA RAZVOJ I PODRŠKU POLJOPRIVREDE \"PČELICA\"");
-                y -= 25;
-                drawText(cs, font, 11, new float[]{marginLeft, y}, "Datum: " + java.time.LocalDate.now().format(OUT_DF));
-                y -= 20;
-                drawText(cs, font, 11, new float[]{marginLeft, y}, "Broj: " + safe(u.getDocNumber()));
-                y -= 40;
-                drawText(cs, font, 18, new float[]{marginLeft + 150, y}, "POTVRDA");
-
-                y -= 40;
-                String body = String.format("Ovom potvrđujemo da se %s %s, rođen(a) %s u %s, sa prebivalištem u %s, nalazi u evidenciji aktivnih pčelara udruženja.",
-                        safe(u.getFirstName()),
-                        safe(u.getLastName()),
-                        u.getBirthDate() == null ? "" : u.getBirthDate().format(OUT_DF),
-                        safe(u.getBirthPlace()),
-                        safe(u.getResidenceCity()));
-                List<String> lines = wrap(body, 80);
-                for (String ln : lines) {
-                    drawText(cs, font, 12, new float[]{marginLeft, y}, ln);
-                    y -= 16;
-                }
-
-                y -= 10;
-                drawText(cs, font, 12, new float[]{marginLeft, y}, "Broj pčelinjih zajednica: " + u.getColonies());
-
-                y -= 70;
-                drawText(cs, font, 12, new float[]{marginLeft + 250, y}, "Predsjednik Udruženja");
-                y -= 30;
-                drawText(cs, font, 12, new float[]{marginLeft + 250, y}, "________________________");
-                y -= 15;
-                drawText(cs, font, 12, new float[]{marginLeft + 260, y}, "Šahim Halilbašić");
-            }
-
-            doc.save(outExports.toFile());
-            doc.save(outDesktop.toFile());
-        }
-        return outDesktop.toFile();
-    }
-
-    private static PDType0Font loadEmbeddedFont(PDDocument doc) throws IOException {
-        InputStream fontStream = PdfExporter.class.getResourceAsStream("/fonts/DejaVuSans.ttf");
+    private static PDType0Font loadEmbeddedFont(PDDocument doc, String fontPath) throws IOException {
+        InputStream fontStream = PdfExporter.class.getResourceAsStream(fontPath);
         if (fontStream == null) {
-            throw new IOException("Nedostaje font DejaVuSans.ttf u resources/fonts. Dodaj 'src/main/resources/fonts/DejaVuSans.ttf' u projekt.");
+            throw new IOException("Nedostaje font: " + fontPath);
         }
         try (InputStream is = fontStream) {
             return PDType0Font.load(doc, is, true);
@@ -169,40 +170,63 @@ public class PdfExporter {
         return s == null ? "" : s;
     }
 
-    private static void drawText(PDPageContentStream cs, PDType0Font font, float fontSize, float[] coords, String text) throws IOException {
-        if (coords == null || text == null) return;
-        cs.beginText();
-        cs.setFont(font, fontSize);
-        cs.newLineAtOffset(coords[0], coords[1]);
-        cs.showText(text);
-        cs.endText();
+    private static void drawText(PDPageContentStream contentStream, PDType0Font font,
+                                 float fontSize, float x, float y, String text) throws IOException {
+        contentStream.beginText();
+        contentStream.setFont(font, fontSize);
+        contentStream.newLineAtOffset(x, y);
+        contentStream.showText(text);
+        contentStream.endText();
     }
 
-    private static List<String> wrap(String text, int maxChars) {
-        List<String> out = new ArrayList<>();
-        if (text == null) return out;
-        text = text.trim();
-        while (text.length() > maxChars) {
-            int space = text.lastIndexOf(' ', maxChars);
-            if (space <= 0) space = maxChars;
-            out.add(text.substring(0, space));
-            text = text.substring(space).trim();
+    private static List<String> wrapText(String text, PDType0Font font,
+                                         float fontSize, float maxWidth) throws IOException {
+        List<String> lines = new ArrayList<>();
+        if (text == null || text.isEmpty()) {
+            return lines;
         }
-        if (!text.isEmpty()) out.add(text);
-        return out;
-    }
 
-    private static Map<String, float[]> getDefaultCoordinates() {
-        Map<String, float[]> m = new HashMap<>();
-        m.put("org_name", new float[]{50f, 770f});
-        m.put("date", new float[]{50f, 745f});
-        m.put("doc_number", new float[]{50f, 725f});
-        m.put("title", new float[]{220f, 680f});
-        m.put("body", new float[]{50f, 620f});
-        m.put("colonies", new float[]{50f, 520f});
-        m.put("sig_title", new float[]{360f, 440f});
-        m.put("sig_line", new float[]{360f, 410f});
-        m.put("sig_name", new float[]{380f, 395f});
-        return m;
+        String[] words = text.split(" ");
+        StringBuilder currentLine = new StringBuilder();
+
+        for (String word : words) {
+            String testLine = currentLine.length() > 0 ? currentLine + " " + word : word;
+            float testWidth = font.getStringWidth(testLine) / 1000 * fontSize;
+
+            if (testWidth <= maxWidth) {
+                currentLine.append(currentLine.length() > 0 ? " " + word : word);
+            } else {
+                if (currentLine.length() > 0) {
+                    lines.add(currentLine.toString());
+                    currentLine = new StringBuilder(word);
+                } else {
+                    int splitIndex = (int) (maxWidth / (font.getStringWidth("a") / 1000 * fontSize));
+                    if (splitIndex == 0) splitIndex = 1;
+
+                    while (word.length() > 0) {
+                        if (word.length() <= splitIndex) {
+                            currentLine.append(word);
+                            word = "";
+                        } else {
+                            String part = word.substring(0, splitIndex);
+                            float partWidth = font.getStringWidth(part) / 1000 * fontSize;
+
+                            if (partWidth <= maxWidth) {
+                                lines.add(part);
+                                word = word.substring(splitIndex);
+                            } else {
+                                splitIndex--;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (currentLine.length() > 0) {
+            lines.add(currentLine.toString());
+        }
+
+        return lines;
     }
 }
