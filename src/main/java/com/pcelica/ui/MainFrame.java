@@ -27,6 +27,8 @@ import java.time.DayOfWeek;
 import java.util.*;
 import java.util.List;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -42,6 +44,7 @@ public class MainFrame extends JFrame {
     private final JTextField tfSearch = new JTextField(20);
     private static final DateTimeFormatter OUT_DF = DateTimeFormatter.ofPattern("dd.MM.yyyy.");
     private static final DateTimeFormatter BK_PARSER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+    private static final Logger LOGGER = Logger.getLogger(MainFrame.class.getName());
 
     // toolbar components
     private JPanel topPanel;
@@ -358,11 +361,16 @@ public class MainFrame extends JFrame {
         tfSearch.getDocument().addDocumentListener(new DocumentListener() {
             void update() {
                 String raw = tfSearch.getText();
+                LOGGER.log(Level.INFO, "Search text changed: '" + raw + "'");
+
                 if (raw == null || raw.trim().isEmpty()) {
+                    LOGGER.log(Level.INFO, "Clearing search filter");
                     sorter.setRowFilter(null);
                     return;
                 }
+
                 final String q = normalizeForSearch(raw);
+                LOGGER.log(Level.INFO, "Normalized search query: '" + q + "'");
 
                 RowFilter<DefaultTableModel, Integer> rf = new RowFilter<DefaultTableModel, Integer>() {
                     @Override
@@ -378,8 +386,11 @@ public class MainFrame extends JFrame {
                         return false;
                     }
                 };
+
+                LOGGER.log(Level.INFO, "Setting new row filter");
                 sorter.setRowFilter(rf);
             }
+
             @Override public void insertUpdate(DocumentEvent e) { update(); }
             @Override public void removeUpdate(DocumentEvent e) { update(); }
             @Override public void changedUpdate(DocumentEvent e) { update(); }
@@ -389,21 +400,42 @@ public class MainFrame extends JFrame {
         table.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    int viewRow = table.rowAtPoint(e.getPoint());
-                    if (viewRow < 0) return;
+                    LOGGER.log(Level.INFO, "Double click detected");
+                    int viewRow = table.getSelectedRow();
+                    LOGGER.log(Level.INFO, "View row: " + viewRow);
+
+                    if (viewRow < 0) {
+                        LOGGER.log(Level.INFO, "No row selected, returning");
+                        return;
+                    }
+
+                    if (viewRow >= table.getRowCount()) {
+                        LOGGER.log(Level.WARNING, "View row " + viewRow + " >= table row count " + table.getRowCount());
+                        return;
+                    }
 
                     try {
                         int modelRow = table.convertRowIndexToModel(viewRow);
-                        if (modelRow >= 0 && modelRow < tableModel.getRowCount()) {
-                            String id = (String) tableModel.getValueAt(modelRow, 0);
-                            BeeUser u = getUserByIdFromCurrentView(id);
-                            if (u != null) {
-                                DetailDialog dlg = new DetailDialog(MainFrame.this, u, viewingSnapshot);
-                                dlg.setVisible(true);
-                            }
+                        LOGGER.log(Level.INFO, "Converted to model row: " + modelRow);
+
+                        if (modelRow < 0 || modelRow >= tableModel.getRowCount()) {
+                            LOGGER.log(Level.WARNING, "Model row " + modelRow + " out of bounds (0-" + (tableModel.getRowCount()-1) + ")");
+                            return;
                         }
-                    } catch (IndexOutOfBoundsException ex) {
-                        // Ignore index errors during table updates
+
+                        String id = (String) tableModel.getValueAt(modelRow, 0);
+                        LOGGER.log(Level.INFO, "Selected ID: " + id);
+
+                        BeeUser u = getUserByIdFromCurrentView(id);
+                        if (u != null) {
+                            LOGGER.log(Level.INFO, "Opening detail dialog for user: " + u.getFirstName() + " " + u.getLastName());
+                            DetailDialog dlg = new DetailDialog(MainFrame.this, u, viewingSnapshot);
+                            dlg.setVisible(true);
+                        } else {
+                            LOGGER.log(Level.WARNING, "No user found with ID: " + id);
+                        }
+                    } catch (Exception ex) {
+                        LOGGER.log(Level.SEVERE, "Error in double-click handler: " + ex.getMessage(), ex);
                     }
                 }
             }
@@ -651,22 +683,24 @@ public class MainFrame extends JFrame {
     }
 
     private void refreshTable() {
+        LOGGER.log(Level.INFO, "refreshTable called - viewingSnapshot: " + viewingSnapshot);
+
         // Save sorter state
         RowFilter<? super DefaultTableModel, ? super Integer> activeFilter = sorter.getRowFilter();
         List<? extends RowSorter.SortKey> activeSortKeys = new ArrayList<>(sorter.getSortKeys());
 
-        // Detach sorter during update
-        table.setRowSorter(null);
-
-        // Clear and update table data
+        // Clear selection and update model
         table.clearSelection();
         Integer year = (Integer) cbYears.getSelectedItem();
         tableModel.setRowCount(0);
+        LOGGER.log(Level.INFO, "Cleared table, year: " + year);
 
         if (year != null) {
             List<BeeUser> users = viewingSnapshot ?
                     snapshotList.stream().filter(u -> u.getYear() == year).collect(Collectors.toList()) :
                     store.getForYear(year);
+
+            LOGGER.log(Level.INFO, "Found " + users.size() + " users for year " + year);
 
             for (BeeUser u : users) {
                 tableModel.addRow(new Object[]{
@@ -684,10 +718,11 @@ public class MainFrame extends JFrame {
             }
         }
 
-        // Reattach sorter and restore state
-        table.setRowSorter(sorter);
+        // Restore sorter state
         sorter.setRowFilter(activeFilter);
-        sorter.setSortKeys(activeSortKeys);
+        if (activeSortKeys != null && !activeSortKeys.isEmpty()) {
+            sorter.setSortKeys(activeSortKeys);
+        }
 
         // Update UI state
         boolean canModify = !viewingSnapshot;
@@ -695,6 +730,8 @@ public class MainFrame extends JFrame {
         btnEdit.setEnabled(canModify);
         menuDelete.setEnabled(canModify);
         btnMakeSnapshotMain.setEnabled(viewingSnapshot);
+
+        LOGGER.log(Level.INFO, "refreshTable completed");
     }
 
     private BeeUser getUserByIdFromCurrentView(String id) {
@@ -959,10 +996,30 @@ public class MainFrame extends JFrame {
 
     private BeeUser selectedUser() {
         int sel = table.getSelectedRow();
-        if (sel < 0) return null;
-        int modelRow = table.convertRowIndexToModel(sel);
-        String id = (String) tableModel.getValueAt(modelRow, 0);
-        return getUserByIdFromCurrentView(id);
+        LOGGER.log(Level.INFO, "Selected row: " + sel);
+
+        if (sel < 0) {
+            LOGGER.log(Level.INFO, "No row selected");
+            return null;
+        }
+
+        try {
+            int modelRow = table.convertRowIndexToModel(sel);
+            LOGGER.log(Level.INFO, "Converted to model row: " + modelRow);
+
+            if (modelRow < 0 || modelRow >= tableModel.getRowCount()) {
+                LOGGER.log(Level.WARNING, "Model row " + modelRow + " out of bounds (0-" + (tableModel.getRowCount()-1) + ")");
+                return null;
+            }
+
+            String id = (String) tableModel.getValueAt(modelRow, 0);
+            LOGGER.log(Level.INFO, "Selected ID: " + id);
+
+            return getUserByIdFromCurrentView(id);
+        } catch (Exception ex) {
+            LOGGER.log(Level.SEVERE, "Error in selectedUser: " + ex.getMessage(), ex);
+            return null;
+        }
     }
 
     /**
