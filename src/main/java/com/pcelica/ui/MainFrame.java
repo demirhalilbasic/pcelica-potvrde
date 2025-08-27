@@ -36,7 +36,7 @@ public class MainFrame extends JFrame {
     private final DataStore store;
     private final JComboBox<Integer> cbYears = new JComboBox<>();
     private final DefaultTableModel tableModel = new DefaultTableModel(
-            new String[]{"ID", "Ime", "Prezime", "Spol", "Datum rođenja", "Mesto rođenja", "Prebivalište", "Kolonije", "Broj dokumenta", "Datum potvrde"}, 0) {
+            new String[]{"ID", "Ime", "Prezime", "Spol", "Datum rođenja", "Mjesto rođenja", "Prebivalište", "Kolonije", "Broj dokumenta", "Datum potvrde"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
     private final JTable table = new JTable(tableModel);
@@ -785,6 +785,7 @@ public class MainFrame extends JFrame {
             toEdit.setLastName(previous.getLastName());
             toEdit.setGender(previous.getGender());
             toEdit.setBirthDate(previous.getBirthDate());
+            // Sačuvati originalni unos za ova polja, bez konverzije u Title Case
             toEdit.setBirthPlace(previous.getBirthPlace());
             toEdit.setResidenceCity(previous.getResidenceCity());
             toEdit.setColonies(previous.getColonies());
@@ -794,7 +795,7 @@ public class MainFrame extends JFrame {
             toEdit = new BeeUser();
             toEdit.setFirstName(first);
             toEdit.setLastName(last);
-
+            // Ostala polja ostaviti prazna ili postaviti default vrijednosti
             // Set default certificate date to the last user's certificate date in the same year
             List<BeeUser> currentYearUsers = store.getForYear(year);
             if (!currentYearUsers.isEmpty()) {
@@ -839,6 +840,7 @@ public class MainFrame extends JFrame {
         clone.setLastName(u.getLastName());
         clone.setGender(u.getGender());
         clone.setBirthDate(u.getBirthDate());
+        // Sačuvati originalne vrijednosti za ova polja
         clone.setBirthPlace(u.getBirthPlace());
         clone.setResidenceCity(u.getResidenceCity());
         clone.setColonies(u.getColonies());
@@ -1114,6 +1116,11 @@ public class MainFrame extends JFrame {
     // helper: title case
     private String toTitleCase(String input) {
         if (input == null || input.isBlank()) return input;
+
+        // Lista izuzetaka - polja koja NE TREBA konvertovati u Title Case
+        // (koristiti će se u drugim metodama za provjeru)
+        //Set<String> doNotConvertFields = Set.of("birthPlace", "residenceCity");
+
         StringBuilder out = new StringBuilder();
         String[] words = input.trim().toLowerCase().split("\\s+");
         for (int i = 0; i < words.length; i++) {

@@ -240,8 +240,9 @@ public class UserDialog extends JDialog {
         } catch (Exception ex) {
             user.setBirthDate(null);
         }
-        user.setBirthPlace(formatName(tfBirthPlace.getText().trim()));
-        user.setResidenceCity(formatName(tfResidence.getText().trim()));
+        // <-- promijenjeno: sačuvaj točno kako korisnik unese
+        user.setBirthPlace(tfBirthPlace.getText().trim());
+        user.setResidenceCity(tfResidence.getText().trim());
         user.setColonies(((Number) spColonies.getValue()).intValue());
 
         // Save certificate date

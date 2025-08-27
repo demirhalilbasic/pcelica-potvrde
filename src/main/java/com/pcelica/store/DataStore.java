@@ -55,6 +55,7 @@ public class DataStore {
                         u.setSeqNumber(Integer.parseInt(row[9]));
                         u.setYear(Integer.parseInt(row[10]));
                         // Handle certificate date - check if column exists
+                        // nakon u.setYear(Integer.parseInt(row[10]));
                         if (row.length > 11 && row[11] != null && !row[11].isEmpty()) {
                             u.setCertificateDate(LocalDate.parse(row[11], DF));
                         }
@@ -104,6 +105,8 @@ public class DataStore {
         copy.setDocNumber(u.getDocNumber());
         copy.setSeqNumber(u.getSeqNumber());
         copy.setYear(u.getYear());
+        // <<< dodano
+        copy.setCertificateDate(u.getCertificateDate());
         return copy;
     }
 
@@ -178,7 +181,7 @@ public class DataStore {
             } else {
                 // if CSV doesn't exist yet, write an empty CSV with header for consistency
                 try (CSVWriter writer = new CSVWriter(new FileWriter(out.toFile()))) {
-                    writer.writeNext(new String[]{"id","firstName","lastName","gender","birthDate","birthPlace","residenceCity","colonies","docNumber","seqNumber","year"});
+                    writer.writeNext(new String[]{"id","firstName","lastName","gender","birthDate","birthPlace","residenceCity","colonies","docNumber","seqNumber","year","certificateDate"});
                 }
             }
         } catch (Exception ex) {
