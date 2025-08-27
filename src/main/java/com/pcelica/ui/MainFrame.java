@@ -14,10 +14,7 @@ import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.URL;
@@ -31,6 +28,7 @@ import java.util.*;
 import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class MainFrame extends JFrame {
     private final DataStore store;
@@ -391,16 +389,21 @@ public class MainFrame extends JFrame {
         table.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    int viewRow = table.getSelectedRow();
+                    int viewRow = table.rowAtPoint(e.getPoint());
                     if (viewRow < 0) return;
-                    if (viewRow >= table.getRowCount()) return;
-                    int modelRow = table.convertRowIndexToModel(viewRow);
-                    if (modelRow < 0 || modelRow >= tableModel.getRowCount()) return;
-                    String id = (String) tableModel.getValueAt(modelRow, 0);
-                    BeeUser u = getUserByIdFromCurrentView(id);
-                    if (u != null) {
-                        DetailDialog dlg = new DetailDialog(MainFrame.this, u, viewingSnapshot);
-                        dlg.setVisible(true);
+
+                    try {
+                        int modelRow = table.convertRowIndexToModel(viewRow);
+                        if (modelRow >= 0 && modelRow < tableModel.getRowCount()) {
+                            String id = (String) tableModel.getValueAt(modelRow, 0);
+                            BeeUser u = getUserByIdFromCurrentView(id);
+                            if (u != null) {
+                                DetailDialog dlg = new DetailDialog(MainFrame.this, u, viewingSnapshot);
+                                dlg.setVisible(true);
+                            }
+                        }
+                    } catch (IndexOutOfBoundsException ex) {
+                        // Ignore index errors during table updates
                     }
                 }
             }
@@ -606,87 +609,92 @@ public class MainFrame extends JFrame {
         }
     }
 
+    // This method is likely in your MainFrame.java file
     private void loadYears() {
-        Set<Integer> years = store.getYears();
-        cbYears.removeAllItems();
-        years.stream().sorted().forEach(cbYears::addItem);
-        // ensure we set selected item only if combo contains it
-        Integer now = LocalDate.now().getYear();
-        if (years.contains(now)) {
-            cbYears.setSelectedItem(now);
-        } else if (!years.isEmpty()) {
-            cbYears.setSelectedItem(years.stream().sorted().findFirst().orElse(now));
+        // 1. Get all existing listeners from the combo box.
+        ActionListener[] listeners = cbYears.getActionListeners();
+        // 2. Remove them all temporarily.
+        for (ActionListener listener : listeners) {
+            cbYears.removeActionListener(listener);
         }
-        // refreshTable() will be called by the combo action listener or we call it here to be safe
-        refreshTable();
+
+        // --- YOUR ORIGINAL CODE TO POPULATE THE COMBO BOX ---
+        // 3. Now, you can safely clear and add items without triggering events.
+        Integer selectedYear = (Integer) cbYears.getSelectedItem();
+        cbYears.removeAllItems();
+
+        Set<Integer> years = store.getYears();
+        if (years.isEmpty()) {
+            years.add(java.time.LocalDate.now().getYear());
+        }
+        years.stream()
+                .sorted(java.util.Collections.reverseOrder())
+                .forEach(cbYears::addItem);
+        // --- END OF YOUR ORIGINAL CODE ---
+
+
+        // 4. Restore the listeners you removed.
+        for (ActionListener listener : listeners) {
+            cbYears.addActionListener(listener);
+        }
+
+        // 5. Set the selection. If an item is selected, this will now correctly
+        // trigger the re-attached listener and call refreshTable() safely.
+        if (selectedYear != null && years.contains(selectedYear)) {
+            cbYears.setSelectedItem(selectedYear);
+        } else if (cbYears.getItemCount() > 0) {
+            cbYears.setSelectedIndex(0);
+        } else {
+            // If there's nothing to select, call refreshTable() manually.
+            refreshTable();
+        }
     }
 
     private void refreshTable() {
-        // If sorter is attached to table, save its state and detach it.
-        RowFilter<? super DefaultTableModel, ? super Integer> activeFilter = null;
-        List<? extends RowSorter.SortKey> activeSortKeys = null;
-        boolean sorterWasAttached = table.getRowSorter() == sorter;
-        if (sorterWasAttached) {
-            try {
-                activeFilter = sorter.getRowFilter();
-                activeSortKeys = sorter.getSortKeys();
-            } catch (Exception ignored) {}
-            // detach sorter to avoid stale-index warnings while we modify the model
-            table.setRowSorter(null);
-        }
+        // Save sorter state
+        RowFilter<? super DefaultTableModel, ? super Integer> activeFilter = sorter.getRowFilter();
+        List<? extends RowSorter.SortKey> activeSortKeys = new ArrayList<>(sorter.getSortKeys());
 
-        // ensure selection is cleared to avoid stale view indexes
+        // Detach sorter during update
+        table.setRowSorter(null);
+
+        // Clear and update table data
         table.clearSelection();
-
         Integer year = (Integer) cbYears.getSelectedItem();
-        if (year == null) {
-            tableModel.setRowCount(0);
-            // reattach sorter with previous state (if any)
-            if (sorterWasAttached) {
-                table.setRowSorter(sorter);
-                try { sorter.setRowFilter(activeFilter); sorter.setSortKeys(activeSortKeys); } catch (Exception ignored) {}
-            }
-            return;
-        }
-
-        // Clear and repopulate model (while sorter is detached)
         tableModel.setRowCount(0);
-        List<BeeUser> users;
-        if (viewingSnapshot) {
-            users = new ArrayList<>();
-            for (BeeUser u : snapshotList) if (u.getYear() == year) users.add(u);
-        } else {
-            users = store.getForYear(year);
-        }
-        for (BeeUser u : users) {
-            tableModel.addRow(new Object[]{
-                    u.getId(),
-                    u.getFirstName(),
-                    u.getLastName(),
-                    u.getGender(),
-                    u.getBirthDate() == null ? "" : u.getBirthDate().format(OUT_DF),
-                    u.getBirthPlace(),
-                    u.getResidenceCity(),
-                    u.getColonies(),
-                    u.getDocNumber(),
-                    u.getCertificateDate() == null ? "" : u.getCertificateDate().format(OUT_DF)
-            });
+
+        if (year != null) {
+            List<BeeUser> users = viewingSnapshot ?
+                    snapshotList.stream().filter(u -> u.getYear() == year).collect(Collectors.toList()) :
+                    store.getForYear(year);
+
+            for (BeeUser u : users) {
+                tableModel.addRow(new Object[]{
+                        u.getId(),
+                        u.getFirstName(),
+                        u.getLastName(),
+                        u.getGender(),
+                        u.getBirthDate() == null ? "" : u.getBirthDate().format(OUT_DF),
+                        u.getBirthPlace(),
+                        u.getResidenceCity(),
+                        u.getColonies(),
+                        u.getDocNumber(),
+                        u.getCertificateDate() == null ? "" : u.getCertificateDate().format(OUT_DF)
+                });
+            }
         }
 
-        // Reattach sorter and restore its state safely
+        // Reattach sorter and restore state
         table.setRowSorter(sorter);
-        try {
-            sorter.setRowFilter(activeFilter);
-            sorter.setSortKeys(activeSortKeys);
-        } catch (Exception ignored) {}
+        sorter.setRowFilter(activeFilter);
+        sorter.setSortKeys(activeSortKeys);
 
-        // enable/disable modification controls (null-safe)
+        // Update UI state
         boolean canModify = !viewingSnapshot;
-        if (btnAdd != null) btnAdd.setEnabled(canModify);
-        if (btnEdit != null) btnEdit.setEnabled(canModify);
-        if (btnDelete != null) btnDelete.setEnabled(canModify);
-        if (menuDelete != null) menuDelete.setEnabled(canModify);
-        if (btnMakeSnapshotMain != null) btnMakeSnapshotMain.setEnabled(viewingSnapshot);
+        btnAdd.setEnabled(canModify);
+        btnEdit.setEnabled(canModify);
+        menuDelete.setEnabled(canModify);
+        btnMakeSnapshotMain.setEnabled(viewingSnapshot);
     }
 
     private BeeUser getUserByIdFromCurrentView(String id) {
@@ -866,24 +874,15 @@ public class MainFrame extends JFrame {
     }
 
     private void refreshView() {
-        // Clear search field and filter first
-        tfSearch.setText("");
-
-        // Reset sorting/filter state on sorter
-        try {
+        SwingUtilities.invokeLater(() -> {
+            tfSearch.setText("");
             sorter.setRowFilter(null);
             sorter.setSortKeys(null);
-        } catch (Exception ignored) {}
-
-        // Detach sorter and clear selection to avoid stale-index warnings
-        table.clearSelection();
-        table.setRowSorter(null);
-
-        // Refresh data
-        refreshTable();
-
-        // Reset column widths to equal sizes (user requested)
-        resetColumnWidths();
+            table.clearSelection();
+            table.setRowSorter(null);
+            refreshTable();
+            resetColumnWidths();
+        });
     }
 
     public File exportUserPdf(BeeUser u) throws Exception {
