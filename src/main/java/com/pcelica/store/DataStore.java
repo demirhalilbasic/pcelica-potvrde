@@ -33,7 +33,7 @@ public class DataStore {
         load();
     }
 
-    private void load() throws IOException {
+    public void load() throws IOException {
         // Load CSV if exists
         if (Files.exists(CSV_FILE)) {
             try (CSVReader reader = new CSVReader(new FileReader(CSV_FILE.toFile()))) {

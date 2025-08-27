@@ -6,6 +6,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.File;
+import java.time.format.DateTimeFormatter;
 
 public class DetailDialog extends JDialog {
     private final BeeUser user;
@@ -53,6 +54,7 @@ public class DetailDialog extends JDialog {
         addRow(details, gc, "Mjesto rođenja:", user.getBirthPlace());
         addRow(details, gc, "Prebivalište:", user.getResidenceCity());
         addRow(details, gc, "Broj pčelinjih zajednica:", String.valueOf(user.getColonies()));
+        addRow(details, gc, "Datum potvrde:", user.getCertificateDate() == null ? "" : user.getCertificateDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy.")));
 
         root.add(details, BorderLayout.CENTER);
 

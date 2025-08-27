@@ -9,6 +9,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
@@ -34,7 +35,7 @@ public class MainFrame extends JFrame {
     private final DataStore store;
     private final JComboBox<Integer> cbYears = new JComboBox<>();
     private final DefaultTableModel tableModel = new DefaultTableModel(
-            new String[]{"ID", "Ime", "Prezime", "Spol", "Datum rođenja", "Mesto rođenja", "Prebivalište", "Kolonije", "Broj dokumenta"}, 0) {
+            new String[]{"ID", "Ime", "Prezime", "Spol", "Datum rođenja", "Mesto rođenja", "Prebivalište", "Kolonije", "Broj dokumenta", "Datum potvrde"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
     private final JTable table = new JTable(tableModel);
@@ -106,6 +107,22 @@ public class MainFrame extends JFrame {
         ImageIcon backupIcon = loadIcon("/icons/backup.png", 32, 32);
         ImageIcon snapshotIcon = loadIcon("/icons/snapshot.png", 32, 32);
         ImageIcon arrowDownIcon = loadIcon("/icons/arrow_down.png", 16, 16);
+
+        ImageIcon exportAllIcon = loadIcon("/icons/export_all.png", 32, 32);
+        ImageIcon importIcon = loadIcon("/icons/import.png", 32, 32);
+
+        JButton btnExportAll = createToolbarButton("E", exportAllIcon);
+        JButton btnImport = createToolbarButton("I", importIcon);
+
+        // Add them to the toolbar
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnExportAll);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnImport);
+
+        // Add action listeners
+        btnExportAll.addActionListener(e -> onExportAll());
+        btnImport.addActionListener(e -> onImport());
 
         // Year selection with custom arrow - completely replace default arrow
         JPanel yearPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
@@ -288,6 +305,74 @@ public class MainFrame extends JFrame {
         });
     }
 
+    private void onExportAll() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setDialogTitle("Odaberite folder za export podataka");
+
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            try {
+                File targetDir = chooser.getSelectedFile();
+
+                // Export CSV
+                Path csvFile = Paths.get(targetDir.getAbsolutePath(), "store.csv");
+                Files.copy(Paths.get("data", "store.csv"), csvFile, StandardCopyOption.REPLACE_EXISTING);
+
+                // Export reserved numbers
+                Path jsonFile = Paths.get(targetDir.getAbsolutePath(), "reserved_numbers.json");
+                Files.copy(Paths.get("data", "reserved_numbers.json"), jsonFile, StandardCopyOption.REPLACE_EXISTING);
+
+                JOptionPane.showMessageDialog(this, "Podaci uspješno exportovani u: " + targetDir.getAbsolutePath());
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Greška pri exportu: " + ex.getMessage());
+            }
+        }
+    }
+
+    private void onImport() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Odaberite CSV fajl za import");
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV fajlovi", "csv"));
+
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File csvFile = chooser.getSelectedFile();
+
+            // Now ask for the reserved numbers JSON file
+            chooser.setDialogTitle("Odaberite reserved_numbers.json fajl");
+            chooser.setFileFilter(new FileNameExtensionFilter("JSON fajlovi", "json"));
+
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File jsonFile = chooser.getSelectedFile();
+
+                int confirm = JOptionPane.showConfirmDialog(this,
+                        "Ova akcija će zamijeniti sve postojeće podatke. Želite li nastaviti?",
+                        "Potvrda importa", JOptionPane.YES_NO_OPTION);
+
+                if (confirm == JOptionPane.YES_OPTION) {
+                    try {
+                        // Copy files to data directory
+                        Files.copy(csvFile.toPath(), Paths.get("data", "store.csv"), StandardCopyOption.REPLACE_EXISTING);
+                        Files.copy(jsonFile.toPath(), Paths.get("data", "reserved_numbers.json"), StandardCopyOption.REPLACE_EXISTING);
+
+                        // Reload the datastore
+                        store.load();
+                        viewingSnapshot = false;
+                        currentSnapshotFile = null;
+                        snapshotList = Collections.emptyList();
+                        loadYears();
+                        refreshTable();
+
+                        JOptionPane.showMessageDialog(this, "Podaci uspješno importovani");
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        JOptionPane.showMessageDialog(this, "Greška pri importu: " + ex.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
     private JButton createToolbarButton(String text, ImageIcon icon) {
         JButton button = new JButton(text, icon);
         button.setFocusPainted(false);
@@ -403,7 +488,8 @@ public class MainFrame extends JFrame {
                     u.getBirthPlace(),
                     u.getResidenceCity(),
                     u.getColonies(),
-                    u.getDocNumber()
+                    u.getDocNumber(),
+                    u.getCertificateDate() == null ? "" : u.getCertificateDate().format(OUT_DF)  // New column
             });
         }
 
