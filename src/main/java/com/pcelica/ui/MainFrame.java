@@ -6,12 +6,19 @@ import com.pcelica.store.DataStore;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.io.File;
+import java.net.URL;
 import java.nio.file.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,6 +27,7 @@ import java.time.DayOfWeek;
 import java.util.*;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public class MainFrame extends JFrame {
     private final DataStore store;
@@ -34,8 +42,10 @@ public class MainFrame extends JFrame {
     private static final DateTimeFormatter OUT_DF = DateTimeFormatter.ofPattern("dd.MM.yyyy.");
     private static final DateTimeFormatter BK_PARSER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
-    // toolbar buttons
-    private JToolBar toolbar;
+    // toolbar components
+    private JPanel topPanel;
+    private JToolBar mainToolbar;
+    private JToolBar searchToolbar;
     private JButton btnAdd, btnEdit, btnDelete, btnExport, btnRestoreStartup, btnRestoreFromBackup, btnMakeSnapshotMain;
 
     // snapshot state
@@ -48,12 +58,13 @@ public class MainFrame extends JFrame {
         this.store = store;
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(1200, 700);
+        setMinimumSize(new Dimension(1000, 600));
         initUI();
         loadYears();
         setLocationRelativeTo(null);
 
-        addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosing(java.awt.event.WindowEvent e) {
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) {
                 try {
                     store.saveAll();
                 } catch (Exception ex) { ex.printStackTrace(); }
@@ -64,56 +75,136 @@ public class MainFrame extends JFrame {
     }
 
     private void initUI() {
-        JPanel topPanel = new JPanel(new BorderLayout(8,8));
-        topPanel.setBorder(new EmptyBorder(8,8,8,8));
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
-        toolbar = new JToolBar();
-        toolbar.setFloatable(false);
-        toolbar.add(new JLabel("Godina: "));
-        toolbar.add(cbYears);
-        toolbar.addSeparator(new Dimension(12,0));
+        // Create main panel with BorderLayout
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
-        btnAdd = new JButton("Dodaj");
-        btnEdit = new JButton("Uredi");
-        btnDelete = new JButton("Obriši");
-        btnExport = new JButton("Export PDF");
-        btnRestoreStartup = new JButton("Restore startup");
-        btnRestoreFromBackup = new JButton("Restore from backup");
-        btnMakeSnapshotMain = new JButton("Učitaj ovaj snapshot kao glavni");
+        // Create a panel for toolbars that uses BoxLayout for vertical arrangement
+        topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        topPanel.setBorder(new EmptyBorder(0, 0, 8, 0));
 
-        toolbar.add(btnAdd);
-        toolbar.add(btnEdit);
-        toolbar.add(btnDelete);
-        toolbar.add(btnExport);
-        toolbar.addSeparator(new Dimension(10,0));
-        toolbar.add(btnRestoreStartup);
-        toolbar.add(btnRestoreFromBackup);
-        toolbar.addSeparator(new Dimension(10,0));
-        toolbar.add(btnMakeSnapshotMain);
+        // Main toolbar with actions
+        mainToolbar = new JToolBar();
+        mainToolbar.setFloatable(false);
+        mainToolbar.setFloatable(false);
+        mainToolbar.setMargin(new Insets(0, 0, 5, 0));
+
+        // Load icons
+        ImageIcon addIcon = loadIcon("/icons/add.png", 32, 32);  // Increased size
+        ImageIcon editIcon = loadIcon("/icons/edit.png", 32, 32);
+        ImageIcon deleteIcon = loadIcon("/icons/delete.png", 32, 32);
+        ImageIcon exportIcon = loadIcon("/icons/export.png", 32, 32);
+        ImageIcon restoreIcon = loadIcon("/icons/restore.png", 32, 32);
+        ImageIcon backupIcon = loadIcon("/icons/backup.png", 32, 32);
+        ImageIcon snapshotIcon = loadIcon("/icons/snapshot.png", 32, 32);
+        ImageIcon arrowDownIcon = loadIcon("/icons/arrow_down.png", 16, 16);
+
+        // Year selection with custom arrow - completely replace default arrow
+        JPanel yearPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        yearPanel.add(new JLabel("Godina:"));
+
+        // Create a completely custom combobox without the default arrow
+        JPanel customComboPanel = new JPanel(new BorderLayout());
+        cbYears.setBorder(BorderFactory.createLineBorder(new Color(120, 120, 120), 1));
+        cbYears.setPreferredSize(new Dimension(100, 28));
+        customComboPanel.add(cbYears, BorderLayout.CENTER);
+
+        // Remove the default combobox arrow
+        UIManager.put("ComboBox.squareButton", Boolean.FALSE);
+        cbYears.setUI(new BasicComboBoxUI() {
+            @Override
+            protected JButton createArrowButton() {
+                JButton button = new JButton();
+                button.setIcon(arrowDownIcon);
+                button.setBorder(BorderFactory.createEmptyBorder());
+                button.setContentAreaFilled(false);
+                button.setFocusable(false);
+                return button;
+            }
+        });
+
+        yearPanel.add(customComboPanel);
+        mainToolbar.add(yearPanel);
+        mainToolbar.addSeparator(new Dimension(15, 0));
+
+        // Action buttons with improved styling
+        btnAdd = createToolbarButton("Dodaj", addIcon);
+        btnEdit = createToolbarButton("Uredi", editIcon);
+        btnDelete = createToolbarButton("Obriši", deleteIcon);
+        btnExport = createToolbarButton("Export PDF", exportIcon);
+        btnRestoreStartup = createToolbarButton("Restore startup", restoreIcon);
+        btnRestoreFromBackup = createToolbarButton("Restore from backup", backupIcon);
+        btnMakeSnapshotMain = createToolbarButton("Učitaj snapshot", snapshotIcon);
         btnMakeSnapshotMain.setEnabled(false);
 
-        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        // Add buttons to toolbar with proper spacing
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnAdd);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnEdit);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnDelete);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnExport);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnRestoreStartup);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnRestoreFromBackup);
+        mainToolbar.add(Box.createHorizontalStrut(5));
+        mainToolbar.add(btnMakeSnapshotMain);
+
+        // Search toolbar - aligned to left
+        searchToolbar = new JToolBar();
+        searchToolbar.setFloatable(false);
+        searchToolbar.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         searchPanel.add(new JLabel("Pretraga:"));
+
+        // Style the search field
+        tfSearch.setMaximumSize(new Dimension(200, 28));
+        tfSearch.setPreferredSize(new Dimension(200, 28));
+        tfSearch.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(120, 120, 120), 1),
+                BorderFactory.createEmptyBorder(0, 5, 0, 5)
+        ));
+
         searchPanel.add(tfSearch);
+        searchToolbar.add(searchPanel);
 
-        topPanel.add(toolbar, BorderLayout.WEST);
-        topPanel.add(searchPanel, BorderLayout.EAST);
-        getContentPane().add(topPanel, BorderLayout.NORTH);
+        // Add toolbars to the top panel
+        topPanel.add(mainToolbar);
+        topPanel.add(Box.createVerticalStrut(5));
+        topPanel.add(searchToolbar);
 
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+
+        // Style table
         table.setRowHeight(28);
         table.setFont(new Font("SansSerif", Font.PLAIN, 13));
         table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 13));
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getColumnModel().getColumn(0).setMinWidth(0);
         table.getColumnModel().getColumn(0).setMaxWidth(0);
+        table.setShowGrid(true);
+        table.setGridColor(new Color(220, 220, 220));
+        table.setIntercellSpacing(new Dimension(1, 1));
 
         JScrollPane scroll = new JScrollPane(table);
-        scroll.setBorder(new EmptyBorder(8,8,8,8));
-        getContentPane().add(scroll, BorderLayout.CENTER);
+        scroll.setBorder(new EmptyBorder(8, 0, 0, 0));
+        mainPanel.add(scroll, BorderLayout.CENTER);
 
-        JLabel status = new JLabel("Spreman");
-        status.setBorder(new EmptyBorder(6,8,6,8));
-        getContentPane().add(status, BorderLayout.SOUTH);
+        // Remove the status label at the bottom
+        // mainPanel.add(status, BorderLayout.SOUTH); - This line is removed
+
+        setContentPane(mainPanel);
 
         // actions
         cbYears.addActionListener(e -> refreshTable());
@@ -150,7 +241,6 @@ public class MainFrame extends JFrame {
             int r = JOptionPane.showConfirmDialog(this, "Želite li učitati odabrani snapshot kao novi glavni snapshot? (rezervisani brojevi snapshot-a će zamijeniti postojeće)", "Potvrdi", JOptionPane.YES_NO_OPTION);
             if (r == JOptionPane.YES_OPTION) {
                 try {
-                    // HERE: replace reserved numbers with those from snapshot (reset behavior)
                     store.importSnapshotAsMainReplaceReserved(currentSnapshotFile);
                     viewingSnapshot = false;
                     currentSnapshotFile = null;
@@ -168,20 +258,21 @@ public class MainFrame extends JFrame {
 
         // search
         table.setRowSorter(sorter);
-        tfSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        tfSearch.getDocument().addDocumentListener(new DocumentListener() {
             void update() {
                 String text = tfSearch.getText();
+                Label status = null;
                 if (text == null || text.trim().isEmpty()) {
                     sorter.setRowFilter(null);
                     status.setText("Prikazano " + table.getRowCount() + " zapisa");
                 } else {
-                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(text)));
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(text)));
                     status.setText("Filter: " + text);
                 }
             }
-            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { update(); }
-            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { update(); }
-            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { update(); }
+            @Override public void insertUpdate(DocumentEvent e) { update(); }
+            @Override public void removeUpdate(DocumentEvent e) { update(); }
+            @Override public void changedUpdate(DocumentEvent e) { update(); }
         });
 
         // double click details
@@ -200,6 +291,92 @@ public class MainFrame extends JFrame {
                 }
             }
         });
+    }
+
+    private JButton createToolbarButton(String text, ImageIcon icon) {
+        JButton button = new JButton(text, icon);
+        button.setFocusPainted(false);
+        button.setBorderPainted(true);
+        button.setContentAreaFilled(true);
+        button.setOpaque(true);
+        button.setBackground(new Color(240, 240, 240));
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                BorderFactory.createEmptyBorder(8, 12, 8, 12)  // Increased padding
+        ));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        // Use a fixed size to prevent "dancing" on hover
+        Dimension buttonSize = new Dimension(button.getPreferredSize().width + 10, 48);
+        button.setPreferredSize(buttonSize);
+        button.setMinimumSize(buttonSize);
+        button.setMaximumSize(buttonSize);
+
+        button.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                button.setBackground(new Color(220, 220, 220));
+                // Don't change the border to prevent movement
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                button.setBackground(new Color(240, 240, 240));
+            }
+        });
+
+        return button;
+    }
+
+    private ImageIcon loadIcon(String path, int width, int height) {
+        try {
+            // Try to load as resource first
+            URL imgURL = getClass().getResource(path);
+            if (imgURL != null) {
+                ImageIcon icon = new ImageIcon(imgURL);
+                Image img = icon.getImage();
+                BufferedImage resized = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = resized.createGraphics();
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.drawImage(img, 0, 0, width, height, null);
+                g2.dispose();
+                return new ImageIcon(resized);
+            }
+
+            // Try to load from file system as ICO or other formats
+            String baseDir = System.getProperty("user.dir");
+            Path iconPath = Paths.get(baseDir, "icons", path.substring(path.lastIndexOf("/") + 1));
+
+            if (Files.exists(iconPath)) {
+                String fileName = iconPath.getFileName().toString().toLowerCase();
+
+                if (fileName.endsWith(".ico")) {
+                    // ICO loading
+                    Image image = Toolkit.getDefaultToolkit().getImage(iconPath.toString());
+                    return new ImageIcon(image.getScaledInstance(width, height, Image.SCALE_SMOOTH));
+                } else {
+                    // Standard image formats
+                    ImageIcon icon = new ImageIcon(iconPath.toString());
+                    Image img = icon.getImage();
+                    BufferedImage resized = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g2 = resized.createGraphics();
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                    g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.drawImage(img, 0, 0, width, height, null);
+                    g2.dispose();
+                    return new ImageIcon(resized);
+                }
+            }
+
+            System.err.println("Could not load icon: " + path);
+            return null;
+        } catch (Exception e) {
+            System.err.println("Error loading icon: " + path + " - " + e.getMessage());
+            return null;
+        }
     }
 
     private void loadYears() {

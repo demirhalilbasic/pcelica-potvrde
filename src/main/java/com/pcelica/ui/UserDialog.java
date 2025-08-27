@@ -5,8 +5,9 @@ import com.pcelica.model.BeeUser;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.time.LocalDate;
-import java.util.stream.IntStream;
 
 public class UserDialog extends JDialog {
     private final BeeUser user;
@@ -21,7 +22,6 @@ public class UserDialog extends JDialog {
     private final JTextField tfBirthPlace = new JTextField(20);
     private final JTextField tfResidence = new JTextField(20);
     private final JSpinner spColonies = new JSpinner(new SpinnerNumberModel(19, 0, 1000, 1));
-    private final boolean lockName;
 
     private static final String[] BOSNIAN_MONTHS = new String[]{
             "januar","februar","mart","april","maj","juni","juli","avgust","septembar","oktobar","novembar","decembar"
@@ -31,22 +31,22 @@ public class UserDialog extends JDialog {
         this(owner, title, u, false);
     }
 
-    /**
-     * @param owner parent
-     * @param title title
-     * @param u BeeUser prefilled (may have null fields)
-     * @param lockName if true, first and last name fields will be disabled (cannot be edited)
-     */
     public UserDialog(Window owner, String title, BeeUser u, boolean lockName) {
         super(owner, title, ModalityType.APPLICATION_MODAL);
         this.user = u == null ? new BeeUser() : u;
-        this.lockName = lockName;
         initUI();
         pack();
         setLocationRelativeTo(owner);
+        setResizable(false);
     }
 
     private void initUI() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         JPanel root = new JPanel(new BorderLayout(10,10));
         root.setBorder(new EmptyBorder(12,12,12,12));
 
@@ -112,6 +112,43 @@ public class UserDialog extends JDialog {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton bOk = new JButton("OK");
         JButton bCancel = new JButton("Odustani");
+
+        // Style buttons with better colors
+        bOk.setBackground(new Color(70, 130, 180));  // Steel blue
+        bOk.setForeground(Color.WHITE);
+        bOk.setFocusPainted(false);
+        bOk.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
+
+        bCancel.setBackground(new Color(220, 220, 220));
+        bCancel.setForeground(Color.BLACK);
+        bCancel.setFocusPainted(false);
+        bCancel.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
+
+        // Add hover effects
+        bOk.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                bOk.setBackground(new Color(65, 105, 225));  // Royal blue
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                bOk.setBackground(new Color(70, 130, 180));  // Back to steel blue
+            }
+        });
+
+        bCancel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                bCancel.setBackground(new Color(200, 200, 200));
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                bCancel.setBackground(new Color(220, 220, 220));
+            }
+        });
+
         buttons.add(bOk);
         buttons.add(bCancel);
         root.add(buttons, BorderLayout.SOUTH);
@@ -144,10 +181,6 @@ public class UserDialog extends JDialog {
         if (user.getBirthPlace() != null) tfBirthPlace.setText(user.getBirthPlace());
         if (user.getResidenceCity() != null) tfResidence.setText(user.getResidenceCity());
         spColonies.setValue(user.getColonies() <= 0 ? 19 : user.getColonies());
-
-        // lock name fields if requested
-        tfFirst.setEnabled(!lockName);
-        tfLast.setEnabled(!lockName);
 
         setContentPane(root);
     }
