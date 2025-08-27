@@ -37,7 +37,7 @@ public class DataStore {
         // Load CSV if exists
         if (Files.exists(CSV_FILE)) {
             try (CSVReader reader = new CSVReader(new FileReader(CSV_FILE.toFile()))) {
-                reader.readNext(); // header
+                String[] header = reader.readNext(); // header
                 String[] row;
                 List<BeeUser> all = new ArrayList<>();
                 while ((row = reader.readNext()) != null) {
@@ -54,6 +54,10 @@ public class DataStore {
                         u.setDocNumber(row[8]);
                         u.setSeqNumber(Integer.parseInt(row[9]));
                         u.setYear(Integer.parseInt(row[10]));
+                        // Handle certificate date - check if column exists
+                        if (row.length > 11 && row[11] != null && !row[11].isEmpty()) {
+                            u.setCertificateDate(LocalDate.parse(row[11], DF));
+                        }
                         all.add(u);
                         byYear.computeIfAbsent(u.getYear(), k -> new ArrayList<>()).add(u);
                         if (u.getSeqNumber() > 0) reservedByYear.computeIfAbsent(u.getYear(), k -> new HashSet<>()).add(u.getSeqNumber());
@@ -62,7 +66,6 @@ public class DataStore {
                     }
                 }
                 initialSnapshot = all.stream().map(this::deepCopy).collect(Collectors.toList());
-                // create initial backup labelled STARTUP so user can restore exact startup state
                 createBackupFile("STARTUP");
             } catch (com.opencsv.exceptions.CsvValidationException e) {
                 throw new IOException("Greška pri validaciji CSV fajla", e);
@@ -136,7 +139,7 @@ public class DataStore {
      */
     private void persistAll(String reason) {
         try (CSVWriter writer = new CSVWriter(new FileWriter(CSV_FILE.toFile()))) {
-            String[] header = {"id","firstName","lastName","gender","birthDate","birthPlace","residenceCity","colonies","docNumber","seqNumber","year"};
+            String[] header = {"id","firstName","lastName","gender","birthDate","birthPlace","residenceCity","colonies","docNumber","seqNumber","year","certificateDate"};
             writer.writeNext(header);
             for (List<BeeUser> list : byYear.values()) {
                 for (BeeUser u : list) {
@@ -151,7 +154,8 @@ public class DataStore {
                             String.valueOf(u.getColonies()),
                             u.getDocNumber(),
                             String.valueOf(u.getSeqNumber()),
-                            String.valueOf(u.getYear())
+                            String.valueOf(u.getYear()),
+                            u.getCertificateDate() != null ? u.getCertificateDate().format(DF) : ""
                     };
                     writer.writeNext(row);
                 }
@@ -160,7 +164,6 @@ public class DataStore {
             ex.printStackTrace();
         }
         saveReserved();
-        // create timestamped backup copy (human-friendly names are formatted by UI)
         createBackupFile(reason);
     }
 

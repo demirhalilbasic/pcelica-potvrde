@@ -1,3 +1,4 @@
+// MainFrame.java
 package com.pcelica.ui;
 
 import com.pcelica.model.BeeUser;
@@ -201,9 +202,6 @@ public class MainFrame extends JFrame {
         scroll.setBorder(new EmptyBorder(8, 0, 0, 0));
         mainPanel.add(scroll, BorderLayout.CENTER);
 
-        // Remove the status label at the bottom
-        // mainPanel.add(status, BorderLayout.SOUTH); - This line is removed
-
         setContentPane(mainPanel);
 
         // actions
@@ -261,13 +259,10 @@ public class MainFrame extends JFrame {
         tfSearch.getDocument().addDocumentListener(new DocumentListener() {
             void update() {
                 String text = tfSearch.getText();
-                Label status = null;
                 if (text == null || text.trim().isEmpty()) {
                     sorter.setRowFilter(null);
-                    status.setText("Prikazano " + table.getRowCount() + " zapisa");
                 } else {
                     sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(text)));
-                    status.setText("Filter: " + text);
                 }
             }
             @Override public void insertUpdate(DocumentEvent e) { update(); }
@@ -473,11 +468,21 @@ public class MainFrame extends JFrame {
             toEdit.setBirthPlace(previous.getBirthPlace());
             toEdit.setResidenceCity(previous.getResidenceCity());
             toEdit.setColonies(previous.getColonies());
+            toEdit.setCertificateDate(previous.getCertificateDate());
             JOptionPane.showMessageDialog(this, "Pronađeni podaci iz godine " + previous.getYear() + ". Možete potvrditi ili izmijeniti podatke u sljedećem dijalogu.");
         } else {
             toEdit = new BeeUser();
             toEdit.setFirstName(first);
             toEdit.setLastName(last);
+
+            // Set default certificate date to the last user's certificate date in the same year
+            List<BeeUser> currentYearUsers = store.getForYear(year);
+            if (!currentYearUsers.isEmpty()) {
+                BeeUser lastUser = currentYearUsers.get(currentYearUsers.size() - 1);
+                toEdit.setCertificateDate(lastUser.getCertificateDate());
+            } else {
+                toEdit.setCertificateDate(LocalDate.now());
+            }
         }
 
         UserDialog dlg = new UserDialog(this, "Dodaj pčelara", toEdit, true); // lockName = true
@@ -519,6 +524,7 @@ public class MainFrame extends JFrame {
         clone.setDocNumber(u.getDocNumber());
         clone.setSeqNumber(u.getSeqNumber());
         clone.setYear(u.getYear());
+        clone.setCertificateDate(u.getCertificateDate());
 
         UserDialog dlg = new UserDialog(this, "Uredi pčelara", clone, true); // lock name when editing via dialog from list
         dlg.setVisible(true);
@@ -558,7 +564,24 @@ public class MainFrame extends JFrame {
         }
         try {
             File f = exportUserPdf(u);
-            JOptionPane.showMessageDialog(this, "PDF exportiran: " + f.getAbsolutePath());
+
+            // Check for missing data and show warning
+            StringBuilder warning = new StringBuilder();
+            if (u.getBirthPlace() == null || u.getBirthPlace().trim().isEmpty()) {
+                warning.append("• Mjesto rođenja\n");
+            }
+            if (u.getResidenceCity() == null || u.getResidenceCity().trim().isEmpty()) {
+                warning.append("• Mjesto prebivališta\n");
+            }
+
+            if (warning.length() > 0) {
+                JOptionPane.showMessageDialog(this,
+                        "PDF je uspješno exportovan, ali nedostaju sljedeći podaci:\n" + warning.toString() +
+                                "\nMolimo provjerite podatke o pčelaru.",
+                        "Upozorenje", JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "PDF exportiran: " + f.getAbsolutePath());
+            }
         } catch (Exception ex) {
             ex.printStackTrace();
             JOptionPane.showMessageDialog(this, "Greška pri exportu: " + ex.getMessage());
@@ -616,6 +639,7 @@ public class MainFrame extends JFrame {
         clone.setDocNumber(u.getDocNumber());
         clone.setSeqNumber(u.getSeqNumber());
         clone.setYear(u.getYear());
+        clone.setCertificateDate(u.getCertificateDate());
 
         UserDialog dlg = new UserDialog(this, "Uredi pčelara", clone, true);
         dlg.setVisible(true);

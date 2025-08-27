@@ -15,6 +15,7 @@ public class BeeUser {
     private String docNumber;
     private int seqNumber;
     private int year;
+    private LocalDate certificateDate; // New field for certificate date
 
     public BeeUser() {}
 
@@ -51,6 +52,9 @@ public class BeeUser {
 
     public int getYear() { return year; }
     public void setYear(int year) { this.year = year; }
+
+    public LocalDate getCertificateDate() { return certificateDate; }
+    public void setCertificateDate(LocalDate certificateDate) { this.certificateDate = certificateDate; }
 
     @Override
     public boolean equals(Object o) {

@@ -1,3 +1,4 @@
+// UserDialog.java
 package com.pcelica.ui;
 
 import com.pcelica.model.BeeUser;
@@ -22,6 +23,9 @@ public class UserDialog extends JDialog {
     private final JTextField tfBirthPlace = new JTextField(20);
     private final JTextField tfResidence = new JTextField(20);
     private final JSpinner spColonies = new JSpinner(new SpinnerNumberModel(19, 0, 1000, 1));
+    private final JComboBox<Integer> cbCertDay = new JComboBox<>();
+    private final JComboBox<String> cbCertMonth = new JComboBox<>();
+    private final JComboBox<Integer> cbCertYear = new JComboBox<>();
 
     private static final String[] BOSNIAN_MONTHS = new String[]{
             "januar","februar","mart","april","maj","juni","juli","avgust","septembar","oktobar","novembar","decembar"
@@ -34,13 +38,13 @@ public class UserDialog extends JDialog {
     public UserDialog(Window owner, String title, BeeUser u, boolean lockName) {
         super(owner, title, ModalityType.APPLICATION_MODAL);
         this.user = u == null ? new BeeUser() : u;
-        initUI();
+        initUI(lockName);
         pack();
         setLocationRelativeTo(owner);
         setResizable(false);
     }
 
-    private void initUI() {
+    private void initUI(boolean lockName) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception e) {
@@ -60,11 +64,13 @@ public class UserDialog extends JDialog {
         // name
         grid.add(new JLabel("Ime:"), gc);
         gc.gridx = 1;
+        tfFirst.setEnabled(!lockName);
         grid.add(tfFirst, gc);
         gc.gridy++; gc.gridx = 0;
 
         grid.add(new JLabel("Prezime:"), gc);
         gc.gridx = 1;
+        tfLast.setEnabled(!lockName);
         grid.add(tfLast, gc);
         gc.gridy++; gc.gridx = 0;
 
@@ -104,6 +110,20 @@ public class UserDialog extends JDialog {
         grid.add(new JLabel("Broj pčelinjih zajednica:"), gc);
         gc.gridx = 1;
         grid.add(spColonies, gc);
+        gc.gridy++; gc.gridx = 0;
+
+        // certificate date
+        grid.add(new JLabel("Datum potvrde:"), gc);
+        gc.gridx = 1;
+        JPanel certDatePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        for (int d = 1; d <= 31; d++) cbCertDay.addItem(d);
+        for (String m : BOSNIAN_MONTHS) cbCertMonth.addItem(m);
+        int currentYear2 = LocalDate.now().getYear();
+        for (int y = currentYear2; y >= currentYear2 - 5; y--) cbCertYear.addItem(y);
+        certDatePanel.add(cbCertDay);
+        certDatePanel.add(cbCertMonth);
+        certDatePanel.add(cbCertYear);
+        grid.add(certDatePanel, gc);
         gc.gridy++; gc.gridx = 0;
 
         root.add(grid, BorderLayout.CENTER);
@@ -182,6 +202,20 @@ public class UserDialog extends JDialog {
         if (user.getResidenceCity() != null) tfResidence.setText(user.getResidenceCity());
         spColonies.setValue(user.getColonies() <= 0 ? 19 : user.getColonies());
 
+        // Prefill certificate date
+        if (user.getCertificateDate() != null) {
+            LocalDate d = user.getCertificateDate();
+            cbCertDay.setSelectedItem(d.getDayOfMonth());
+            cbCertMonth.setSelectedIndex(d.getMonthValue() - 1);
+            cbCertYear.setSelectedItem(d.getYear());
+        } else {
+            // Set to current date as default
+            LocalDate today = LocalDate.now();
+            cbCertDay.setSelectedItem(today.getDayOfMonth());
+            cbCertMonth.setSelectedIndex(today.getMonthValue() - 1);
+            cbCertYear.setSelectedItem(today.getYear());
+        }
+
         setContentPane(root);
     }
 
@@ -209,6 +243,16 @@ public class UserDialog extends JDialog {
         user.setBirthPlace(formatName(tfBirthPlace.getText().trim()));
         user.setResidenceCity(formatName(tfResidence.getText().trim()));
         user.setColonies(((Number) spColonies.getValue()).intValue());
+
+        // Save certificate date
+        int certDay = (Integer) cbCertDay.getSelectedItem();
+        int certMonth = cbCertMonth.getSelectedIndex() + 1;
+        int certYear = (Integer) cbCertYear.getSelectedItem();
+        try {
+            user.setCertificateDate(LocalDate.of(certYear, certMonth, certDay));
+        } catch (Exception ex) {
+            user.setCertificateDate(null);
+        }
     }
 
     private String formatName(String raw) {

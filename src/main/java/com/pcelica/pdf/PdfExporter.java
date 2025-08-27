@@ -64,8 +64,9 @@ public class PdfExporter {
                 float contactX = (PDRectangle.A4.getWidth() - contactWidth) / 2;
                 drawText(contentStream, regularFont, 10, contactX, marginTop - 2 * lineHeight, contact);
 
-                // Datum
-                String dateStr = "Datum: " + LocalDate.now().format(OUT_DF) + " godine";
+                // Use certificate date instead of current date
+                String dateStr = "Datum: " + (u.getCertificateDate() != null ?
+                        u.getCertificateDate().format(OUT_DF) : LocalDate.now().format(OUT_DF)) + " godine";
                 drawText(contentStream, regularFont, 11, marginLeft, marginTop - 4 * lineHeight, dateStr);
 
                 // Broj dokumenta
