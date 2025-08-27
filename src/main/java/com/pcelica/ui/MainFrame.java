@@ -22,6 +22,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.URL;
 import java.nio.file.*;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -49,6 +50,12 @@ public class MainFrame extends JFrame {
     private JToolBar mainToolbar;
     private JToolBar searchToolbar;
     private JButton btnAdd, btnEdit, btnDelete, btnExport, btnRestoreStartup, btnRestoreFromBackup, btnMakeSnapshotMain;
+    private JButton btnRefresh;
+    private JMenuBar menuBar;
+    private JMenu toolsMenu;
+
+    // novo polje za stavku u dropdownu "Više"
+    private JMenuItem menuDelete;
 
     // snapshot state
     private boolean viewingSnapshot = false;
@@ -76,6 +83,14 @@ public class MainFrame extends JFrame {
         });
     }
 
+    // Fixed initUI method for MainFrame
+    // Assumes class fields already declare these JButton variables:
+    // JButton btnAdd, btnEdit, btnDelete, btnExport, btnRefresh,
+    // btnRestoreStartup, btnRestoreFromBackup, btnMakeSnapshotMain;
+    // JComboBox<String> cbYears; JTable table; DefaultTableModel tableModel; RowSorter sorter;
+    // JTextField tfSearch; JToolBar mainToolbar, searchToolbar; JPanel topPanel;
+    // boolean viewingSnapshot; File currentSnapshotFile; List<File> snapshotList; Store store; // etc.
+
     private void initUI() {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
@@ -83,58 +98,116 @@ public class MainFrame extends JFrame {
             e.printStackTrace();
         }
 
-        // Create main panel with BorderLayout
+        // --- MENU BAR (unchanged) ---
+        menuBar = new JMenuBar();
+        toolsMenu = new JMenu("Alati");
+        toolsMenu.setFont(new Font("SansSerif", Font.PLAIN, 12));
+
+        JMenuItem exportAllItem = new JMenuItem("Export svih podataka", loadIcon("/icons/export_all.png", 16, 16));
+        JMenuItem importItem = new JMenuItem("Import podataka", loadIcon("/icons/import.png", 16, 16));
+        JMenuItem restoreStartupItem = new JMenuItem("Restore startup", loadIcon("/icons/restore.png", 16, 16));
+        JMenuItem restoreBackupItem = new JMenuItem("Restore from backup", loadIcon("/icons/backup.png", 16, 16));
+        JMenuItem snapshotItem = new JMenuItem("Učitaj snapshot", loadIcon("/icons/snapshot.png", 16, 16));
+
+        exportAllItem.addActionListener(e -> onExportAll());
+        importItem.addActionListener(e -> onImport());
+        restoreStartupItem.addActionListener(e -> {
+            try {
+                store.restoreSnapshot();
+                viewingSnapshot = false;
+                currentSnapshotFile = null;
+                snapshotList = Collections.emptyList();
+                if (btnMakeSnapshotMain != null) btnMakeSnapshotMain.setEnabled(false);
+                refreshTable();
+                JOptionPane.showMessageDialog(this, "Vraćeno stanje pri pokretanju aplikacije.");
+            } catch (Exception ex) { ex.printStackTrace(); JOptionPane.showMessageDialog(this, "Greška: " + ex.getMessage()); }
+        });
+        restoreBackupItem.addActionListener(e -> onRestoreFromBackup());
+        snapshotItem.addActionListener(e -> {
+            if (!viewingSnapshot || currentSnapshotFile == null) {
+                JOptionPane.showMessageDialog(this, "Nema snapshot-a za učitavanje.");
+                return;
+            }
+            int r = JOptionPane.showConfirmDialog(this, "Želite li učitati odabrani snapshot kao novi glavni snapshot? (rezervisani brojevi snapshot-a će zamijeniti postojeće)", "Potvrdi", JOptionPane.YES_NO_OPTION);
+            if (r == JOptionPane.YES_OPTION) {
+                try {
+                    store.importSnapshotAsMainReplaceReserved(currentSnapshotFile);
+                    viewingSnapshot = false;
+                    currentSnapshotFile = null;
+                    snapshotList = Collections.emptyList();
+                    if (btnMakeSnapshotMain != null) btnMakeSnapshotMain.setEnabled(false);
+                    loadYears();
+                    refreshTable();
+                    JOptionPane.showMessageDialog(this, "Snapshot učitan kao novi glavni snapshot (rezervacije resetovane).");
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    JOptionPane.showMessageDialog(this, "Greška pri importu snapshot-a: " + ex.getMessage());
+                }
+            }
+        });
+
+        toolsMenu.add(exportAllItem);
+        toolsMenu.add(importItem);
+        toolsMenu.addSeparator();
+        toolsMenu.add(restoreStartupItem);
+        toolsMenu.add(restoreBackupItem);
+        toolsMenu.add(snapshotItem);
+
+        menuBar.add(toolsMenu);
+        setJMenuBar(menuBar);
+
+        // --- MAIN PANEL ---
         JPanel mainPanel = new JPanel(new BorderLayout());
         mainPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
-        // Create a panel for toolbars that uses BoxLayout for vertical arrangement
         topPanel = new JPanel();
         topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
         topPanel.setBorder(new EmptyBorder(0, 0, 8, 0));
 
-        // Main toolbar with actions
+        // --- TOOLBAR (gornji red: Add/Edit/Export/Year/More at far right) ---
         mainToolbar = new JToolBar();
-        mainToolbar.setFloatable(false);
         mainToolbar.setFloatable(false);
         mainToolbar.setMargin(new Insets(0, 0, 5, 0));
 
         // Load icons
-        ImageIcon addIcon = loadIcon("/icons/add.png", 32, 32);  // Increased size
-        ImageIcon editIcon = loadIcon("/icons/edit.png", 32, 32);
-        ImageIcon deleteIcon = loadIcon("/icons/delete.png", 32, 32);
-        ImageIcon exportIcon = loadIcon("/icons/export.png", 32, 32);
-        ImageIcon restoreIcon = loadIcon("/icons/restore.png", 32, 32);
-        ImageIcon backupIcon = loadIcon("/icons/backup.png", 32, 32);
-        ImageIcon snapshotIcon = loadIcon("/icons/snapshot.png", 32, 32);
+        ImageIcon addIcon = loadIcon("/icons/add.png", 24, 24);
+        ImageIcon editIcon = loadIcon("/icons/edit.png", 24, 24);
+        ImageIcon deleteIcon = loadIcon("/icons/delete.png", 24, 24);
+        ImageIcon exportIcon = loadIcon("/icons/export.png", 24, 24);
+        ImageIcon refreshIcon = loadIcon("/icons/refresh.png", 24, 24);
         ImageIcon arrowDownIcon = loadIcon("/icons/arrow_down.png", 16, 16);
+        ImageIcon restoreIcon = loadIcon("/icons/restore.png", 16, 16);
+        ImageIcon backupIcon = loadIcon("/icons/backup.png", 16, 16);
+        ImageIcon snapshotIcon = loadIcon("/icons/snapshot.png", 16, 16);
+        ImageIcon moreIcon = loadIcon("/icons/more.png", 24, 24);
 
-        ImageIcon exportAllIcon = loadIcon("/icons/export_all.png", 32, 32);
-        ImageIcon importIcon = loadIcon("/icons/import.png", 32, 32);
+        // Action buttons
+        btnAdd = createToolbarButton("Dodaj", addIcon);
+        btnEdit = createToolbarButton("Uredi", editIcon);
+        btnExport = createToolbarButton("PDF", exportIcon);
+        btnRefresh = createToolbarButton("Osvježi", refreshIcon);
+        btnRefresh.setPreferredSize(new Dimension(110, 36)); // compact for search row
 
-        JButton btnExportAll = createToolbarButton("E", exportAllIcon);
-        JButton btnImport = createToolbarButton("I", importIcon);
+        // Keep snapshot button (used elsewhere)
+        btnMakeSnapshotMain = createToolbarButton(null, snapshotIcon);
+        btnMakeSnapshotMain.setToolTipText("Učitaj snapshot kao glavni");
+        btnMakeSnapshotMain.setEnabled(false);
 
-        // Add them to the toolbar
+        // Add main action buttons (left)
+        mainToolbar.add(btnAdd);
         mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnExportAll);
+        mainToolbar.add(btnEdit);
         mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnImport);
+        mainToolbar.add(btnExport);
+        mainToolbar.add(Box.createHorizontalStrut(10));
 
-        // Add action listeners
-        btnExportAll.addActionListener(e -> onExportAll());
-        btnImport.addActionListener(e -> onImport());
-
-        // Year selection with custom arrow - completely replace default arrow
+        // Year selection
         JPanel yearPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         yearPanel.add(new JLabel("Godina:"));
-
-        // Create a completely custom combobox without the default arrow
         JPanel customComboPanel = new JPanel(new BorderLayout());
         cbYears.setBorder(BorderFactory.createLineBorder(new Color(120, 120, 120), 1));
         cbYears.setPreferredSize(new Dimension(100, 28));
         customComboPanel.add(cbYears, BorderLayout.CENTER);
-
-        // Remove the default combobox arrow
         UIManager.put("ComboBox.squareButton", Boolean.FALSE);
         cbYears.setUI(new BasicComboBoxUI() {
             @Override
@@ -147,108 +220,45 @@ public class MainFrame extends JFrame {
                 return button;
             }
         });
-
         yearPanel.add(customComboPanel);
         mainToolbar.add(yearPanel);
-        mainToolbar.addSeparator(new Dimension(15, 0));
 
-        // Action buttons with improved styling
-        btnAdd = createToolbarButton("Dodaj", addIcon);
-        btnEdit = createToolbarButton("Uredi", editIcon);
-        btnDelete = createToolbarButton("Obriši", deleteIcon);
-        btnExport = createToolbarButton("Export PDF", exportIcon);
-        btnRestoreStartup = createToolbarButton("Restore startup", restoreIcon);
-        btnRestoreFromBackup = createToolbarButton("Restore from backup", backupIcon);
-        btnMakeSnapshotMain = createToolbarButton("Učitaj snapshot", snapshotIcon);
-        btnMakeSnapshotMain.setEnabled(false);
+        // glue pushes the next control to the far right
+        mainToolbar.add(Box.createHorizontalGlue());
 
-        // Add buttons to toolbar with proper spacing
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnAdd);
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnEdit);
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnDelete);
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnExport);
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnRestoreStartup);
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnRestoreFromBackup);
-        mainToolbar.add(Box.createHorizontalStrut(5));
-        mainToolbar.add(btnMakeSnapshotMain);
+        // More button at top-right
+        JButton btnMore = createToolbarButton("Više", moreIcon);
+        btnMore.setPreferredSize(new Dimension(90, 36));
+        JPopupMenu moreMenu = new JPopupMenu();
 
-        // Search toolbar - aligned to left
-        searchToolbar = new JToolBar();
-        searchToolbar.setFloatable(false);
-        searchToolbar.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        searchPanel.add(new JLabel("Pretraga:"));
-
-        // Style the search field
-        tfSearch.setMaximumSize(new Dimension(200, 28));
-        tfSearch.setPreferredSize(new Dimension(200, 28));
-        tfSearch.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(120, 120, 120), 1),
-                BorderFactory.createEmptyBorder(0, 5, 0, 5)
-        ));
-
-        searchPanel.add(tfSearch);
-        searchToolbar.add(searchPanel);
-
-        // Add toolbars to the top panel
-        topPanel.add(mainToolbar);
-        topPanel.add(Box.createVerticalStrut(5));
-        topPanel.add(searchToolbar);
-
-        mainPanel.add(topPanel, BorderLayout.NORTH);
-
-        // Style table
-        table.setRowHeight(28);
-        table.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 13));
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.getColumnModel().getColumn(0).setMinWidth(0);
-        table.getColumnModel().getColumn(0).setMaxWidth(0);
-        table.setShowGrid(true);
-        table.setGridColor(new Color(220, 220, 220));
-        table.setIntercellSpacing(new Dimension(1, 1));
-
-        JScrollPane scroll = new JScrollPane(table);
-        scroll.setBorder(new EmptyBorder(8, 0, 0, 0));
-        mainPanel.add(scroll, BorderLayout.CENTER);
-
-        setContentPane(mainPanel);
-
-        // actions
-        cbYears.addActionListener(e -> refreshTable());
-        btnAdd.addActionListener(e -> {
-            if (viewingSnapshot) handleModifyWhileViewingSnapshot();
-            else onAdd();
-        });
-        btnEdit.addActionListener(e -> {
-            if (viewingSnapshot) handleModifyWhileViewingSnapshot();
-            else onEdit();
-        });
-        btnDelete.addActionListener(e -> {
+        // menuDelete is a class-level field so we can enable/disable it from refreshTable()
+        menuDelete = new JMenuItem("Obriši", deleteIcon);
+        menuDelete.addActionListener(e -> {
             if (viewingSnapshot) handleModifyWhileViewingSnapshot();
             else onDelete();
         });
-        btnExport.addActionListener(e -> onExport());
-        btnRestoreStartup.addActionListener(e -> {
+        moreMenu.add(menuDelete);
+
+        JMenuItem mRestoreStartup = new JMenuItem("Restore startup", restoreIcon);
+        mRestoreStartup.addActionListener(e -> {
             try {
                 store.restoreSnapshot();
                 viewingSnapshot = false;
                 currentSnapshotFile = null;
                 snapshotList = Collections.emptyList();
-                btnMakeSnapshotMain.setEnabled(false);
+                if (btnMakeSnapshotMain != null) btnMakeSnapshotMain.setEnabled(false);
                 refreshTable();
                 JOptionPane.showMessageDialog(this, "Vraćeno stanje pri pokretanju aplikacije.");
             } catch (Exception ex) { ex.printStackTrace(); JOptionPane.showMessageDialog(this, "Greška: " + ex.getMessage()); }
         });
-        btnRestoreFromBackup.addActionListener(e -> onRestoreFromBackup());
-        btnMakeSnapshotMain.addActionListener(e -> {
+        moreMenu.add(mRestoreStartup);
+
+        JMenuItem mRestoreBackup = new JMenuItem("Restore from backup", backupIcon);
+        mRestoreBackup.addActionListener(e -> onRestoreFromBackup());
+        moreMenu.add(mRestoreBackup);
+
+        JMenuItem mLoadSnapshot = new JMenuItem("Učitaj snapshot", snapshotIcon);
+        mLoadSnapshot.addActionListener(e -> {
             if (!viewingSnapshot || currentSnapshotFile == null) {
                 JOptionPane.showMessageDialog(this, "Nema snapshot-a za učitavanje.");
                 return;
@@ -260,7 +270,7 @@ public class MainFrame extends JFrame {
                     viewingSnapshot = false;
                     currentSnapshotFile = null;
                     snapshotList = Collections.emptyList();
-                    btnMakeSnapshotMain.setEnabled(false);
+                    if (btnMakeSnapshotMain != null) btnMakeSnapshotMain.setEnabled(false);
                     loadYears();
                     refreshTable();
                     JOptionPane.showMessageDialog(this, "Snapshot učitan kao novi glavni snapshot (rezervacije resetovane).");
@@ -270,30 +280,122 @@ public class MainFrame extends JFrame {
                 }
             }
         });
+        moreMenu.add(mLoadSnapshot);
 
-        // search
+        btnMore.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                moreMenu.show(btnMore, 0, btnMore.getHeight());
+            }
+        });
+
+        mainToolbar.add(btnMore);
+
+        // --- SEARCH ROW (refresh + search field, aligned left) ---
+        searchToolbar = new JToolBar();
+        searchToolbar.setFloatable(false);
+        searchToolbar.setLayout(new FlowLayout(FlowLayout.LEFT, 6, 0)); // left aligned
+
+        // Refresh button first (max left)
+        searchToolbar.add(btnRefresh);
+
+        // Search label & field immediately to the right
+        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        searchPanel.add(new JLabel("Pretraga:"));
+
+        tfSearch.setMaximumSize(new Dimension(300, 28));
+        tfSearch.setPreferredSize(new Dimension(300, 28));
+        tfSearch.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(120, 120, 120), 1),
+                BorderFactory.createEmptyBorder(0, 5, 0, 5)
+        ));
+
+        searchPanel.add(tfSearch);
+        searchToolbar.add(searchPanel);
+
+        // Add toolbars to top panel
+        topPanel.add(mainToolbar);
+        topPanel.add(Box.createVerticalStrut(6));
+        topPanel.add(searchToolbar);
+
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+
+        // --- TABLE ---
+        table.setRowHeight(28);
+        table.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        table.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 13));
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.getColumnModel().getColumn(0).setMinWidth(0);
+        table.getColumnModel().getColumn(0).setMaxWidth(0);
+        table.setShowGrid(true);
+        table.setGridColor(new Color(220, 220, 220));
+        table.setIntercellSpacing(new Dimension(1, 1));
+        table.getTableHeader().setReorderingAllowed(false);
+
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setBorder(new EmptyBorder(8, 0, 0, 0));
+        mainPanel.add(scroll, BorderLayout.CENTER);
+
+        setContentPane(mainPanel);
+
+        // --- ACTIONS ---
+        cbYears.addActionListener(e -> refreshTable());
+
+        btnAdd.addActionListener(e -> {
+            if (viewingSnapshot) handleModifyWhileViewingSnapshot();
+            else onAdd();
+        });
+        btnEdit.addActionListener(e -> {
+            if (viewingSnapshot) handleModifyWhileViewingSnapshot();
+            else onEdit();
+        });
+        // delete now handled in menuDelete
+        btnExport.addActionListener(e -> onExport());
+
+        // btnRefresh on the search row
+        btnRefresh.addActionListener(e -> refreshView());
+
+        // search filter
         table.setRowSorter(sorter);
         tfSearch.getDocument().addDocumentListener(new DocumentListener() {
             void update() {
-                String text = tfSearch.getText();
-                if (text == null || text.trim().isEmpty()) {
+                String raw = tfSearch.getText();
+                if (raw == null || raw.trim().isEmpty()) {
                     sorter.setRowFilter(null);
-                } else {
-                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(text)));
+                    return;
                 }
+                final String q = normalizeForSearch(raw);
+
+                RowFilter<DefaultTableModel, Integer> rf = new RowFilter<DefaultTableModel, Integer>() {
+                    @Override
+                    public boolean include(Entry<? extends DefaultTableModel, ? extends Integer> entry) {
+                        int cols = entry.getValueCount();
+                        // skip column 0 (ID) because it's hidden/internal
+                        for (int c = 1; c < cols; c++) {
+                            Object val = entry.getValue(c);
+                            if (val == null) continue;
+                            String sv = normalizeForSearch(String.valueOf(val));
+                            if (sv.contains(q)) return true;
+                        }
+                        return false;
+                    }
+                };
+                sorter.setRowFilter(rf);
             }
             @Override public void insertUpdate(DocumentEvent e) { update(); }
             @Override public void removeUpdate(DocumentEvent e) { update(); }
             @Override public void changedUpdate(DocumentEvent e) { update(); }
         });
 
-        // double click details
+        // double click details - robust check before converting indices
         table.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    int row = table.getSelectedRow();
-                    if (row < 0) return;
-                    int modelRow = table.convertRowIndexToModel(row);
+                    int viewRow = table.getSelectedRow();
+                    if (viewRow < 0) return;
+                    if (viewRow >= table.getRowCount()) return;
+                    int modelRow = table.convertRowIndexToModel(viewRow);
+                    if (modelRow < 0 || modelRow >= tableModel.getRowCount()) return;
                     String id = (String) tableModel.getValueAt(modelRow, 0);
                     BeeUser u = getUserByIdFromCurrentView(id);
                     if (u != null) {
@@ -303,6 +405,51 @@ public class MainFrame extends JFrame {
                 }
             }
         });
+    }
+
+    private String normalizeForSearch(String s) {
+        if (s == null) return "";
+        // Normalize Unicode to NFD and remove diacritic marks
+        String n = Normalizer.normalize(s, Normalizer.Form.NFD);
+        n = n.replaceAll("\\p{M}", ""); // remove diacritic marks
+        return n.toLowerCase(Locale.ROOT);
+    }
+
+    private void resetColumnWidths() {
+        // determine target width from viewport if available, otherwise table width
+        int total = table.getWidth();
+        Container p = table.getParent();
+        if (p instanceof JViewport) {
+            total = ((JViewport) p).getWidth();
+        }
+        if (total <= 0) return;
+
+        int cols = table.getColumnModel().getColumnCount();
+        if (cols <= 1) return; // nothing to resize (ID only)
+
+        // count visible columns (skip the hidden ID column if its width is 0)
+        int visibleCount = 0;
+        for (int i = 0; i < cols; i++) {
+            if (table.getColumnModel().getColumn(i).getMaxWidth() > 0) visibleCount++;
+        }
+        if (visibleCount <= 0) return;
+        int per = Math.max(60, total / visibleCount); // minimum sensible width
+
+        for (int i = 0; i < cols; i++) {
+            // keep ID column hidden (min/max 0) if you already set it so
+            if (i == 0) {
+                table.getColumnModel().getColumn(i).setMinWidth(0);
+                table.getColumnModel().getColumn(i).setMaxWidth(0);
+                table.getColumnModel().getColumn(i).setPreferredWidth(0);
+                continue;
+            }
+            table.getColumnModel().getColumn(i).setMinWidth(40);
+            table.getColumnModel().getColumn(i).setPreferredWidth(per);
+            table.getColumnModel().getColumn(i).setMaxWidth(Integer.MAX_VALUE);
+        }
+        // force revalidate/repaint
+        table.revalidate();
+        table.repaint();
     }
 
     private void onExportAll() {
@@ -463,13 +610,46 @@ public class MainFrame extends JFrame {
         Set<Integer> years = store.getYears();
         cbYears.removeAllItems();
         years.stream().sorted().forEach(cbYears::addItem);
-        cbYears.setSelectedItem(LocalDate.now().getYear());
+        // ensure we set selected item only if combo contains it
+        Integer now = LocalDate.now().getYear();
+        if (years.contains(now)) {
+            cbYears.setSelectedItem(now);
+        } else if (!years.isEmpty()) {
+            cbYears.setSelectedItem(years.stream().sorted().findFirst().orElse(now));
+        }
+        // refreshTable() will be called by the combo action listener or we call it here to be safe
         refreshTable();
     }
 
     private void refreshTable() {
+        // If sorter is attached to table, save its state and detach it.
+        RowFilter<? super DefaultTableModel, ? super Integer> activeFilter = null;
+        List<? extends RowSorter.SortKey> activeSortKeys = null;
+        boolean sorterWasAttached = table.getRowSorter() == sorter;
+        if (sorterWasAttached) {
+            try {
+                activeFilter = sorter.getRowFilter();
+                activeSortKeys = sorter.getSortKeys();
+            } catch (Exception ignored) {}
+            // detach sorter to avoid stale-index warnings while we modify the model
+            table.setRowSorter(null);
+        }
+
+        // ensure selection is cleared to avoid stale view indexes
+        table.clearSelection();
+
         Integer year = (Integer) cbYears.getSelectedItem();
-        if (year == null) return;
+        if (year == null) {
+            tableModel.setRowCount(0);
+            // reattach sorter with previous state (if any)
+            if (sorterWasAttached) {
+                table.setRowSorter(sorter);
+                try { sorter.setRowFilter(activeFilter); sorter.setSortKeys(activeSortKeys); } catch (Exception ignored) {}
+            }
+            return;
+        }
+
+        // Clear and repopulate model (while sorter is detached)
         tableModel.setRowCount(0);
         List<BeeUser> users;
         if (viewingSnapshot) {
@@ -489,15 +669,24 @@ public class MainFrame extends JFrame {
                     u.getResidenceCity(),
                     u.getColonies(),
                     u.getDocNumber(),
-                    u.getCertificateDate() == null ? "" : u.getCertificateDate().format(OUT_DF)  // New column
+                    u.getCertificateDate() == null ? "" : u.getCertificateDate().format(OUT_DF)
             });
         }
 
-        // enable/disable modification buttons
-        btnAdd.setEnabled(!viewingSnapshot);
-        btnEdit.setEnabled(!viewingSnapshot);
-        btnDelete.setEnabled(!viewingSnapshot);
-        btnMakeSnapshotMain.setEnabled(viewingSnapshot);
+        // Reattach sorter and restore its state safely
+        table.setRowSorter(sorter);
+        try {
+            sorter.setRowFilter(activeFilter);
+            sorter.setSortKeys(activeSortKeys);
+        } catch (Exception ignored) {}
+
+        // enable/disable modification controls (null-safe)
+        boolean canModify = !viewingSnapshot;
+        if (btnAdd != null) btnAdd.setEnabled(canModify);
+        if (btnEdit != null) btnEdit.setEnabled(canModify);
+        if (btnDelete != null) btnDelete.setEnabled(canModify);
+        if (menuDelete != null) menuDelete.setEnabled(canModify);
+        if (btnMakeSnapshotMain != null) btnMakeSnapshotMain.setEnabled(viewingSnapshot);
     }
 
     private BeeUser getUserByIdFromCurrentView(String id) {
@@ -571,6 +760,7 @@ public class MainFrame extends JFrame {
             }
         }
 
+        // lockName = true -> in second dialog name fields are not editable (user wanted this)
         UserDialog dlg = new UserDialog(this, "Dodaj pčelara", toEdit, true); // lockName = true
         dlg.setVisible(true);
         if (!dlg.isOk()) return;
@@ -612,7 +802,8 @@ public class MainFrame extends JFrame {
         clone.setYear(u.getYear());
         clone.setCertificateDate(u.getCertificateDate());
 
-        UserDialog dlg = new UserDialog(this, "Uredi pčelara", clone, true); // lock name when editing via dialog from list
+        // Allow changing name when editing (lockName = false)
+        UserDialog dlg = new UserDialog(this, "Uredi pčelara", clone, false); // lockName = false
         dlg.setVisible(true);
         if (!dlg.isOk()) return;
         BeeUser edited = dlg.getUser();
@@ -674,6 +865,27 @@ public class MainFrame extends JFrame {
         }
     }
 
+    private void refreshView() {
+        // Clear search field and filter first
+        tfSearch.setText("");
+
+        // Reset sorting/filter state on sorter
+        try {
+            sorter.setRowFilter(null);
+            sorter.setSortKeys(null);
+        } catch (Exception ignored) {}
+
+        // Detach sorter and clear selection to avoid stale-index warnings
+        table.clearSelection();
+        table.setRowSorter(null);
+
+        // Refresh data
+        refreshTable();
+
+        // Reset column widths to equal sizes (user requested)
+        resetColumnWidths();
+    }
+
     public File exportUserPdf(BeeUser u) throws Exception {
         return PdfExporter.exportToDesktopFolder(u);
     }
@@ -727,7 +939,8 @@ public class MainFrame extends JFrame {
         clone.setYear(u.getYear());
         clone.setCertificateDate(u.getCertificateDate());
 
-        UserDialog dlg = new UserDialog(this, "Uredi pčelara", clone, true);
+        // Allow changing name when editing from details
+        UserDialog dlg = new UserDialog(this, "Uredi pčelara", clone, false); // lockName = false
         dlg.setVisible(true);
         if (!dlg.isOk()) return;
         BeeUser edited = dlg.getUser();
